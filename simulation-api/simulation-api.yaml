@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simulation-api
+  namespace: argo
+spec:
+  selector:
+    matchLabels:
+      app: simulation-api
+  template:
+    metadata:
+      labels:
+        app: simulation-api
+    spec:
+      containers:
+        - name: simulation-api
+          image: simulation-api:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simulation-api
+  namespace: argo
+spec:
+  selector:
+    app: simulation-api
+  ports:
+    - name: api
+      port: 8000
+      targetPort: 8000

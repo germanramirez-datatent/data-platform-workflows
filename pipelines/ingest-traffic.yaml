@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: ingest-traffic-
+spec:
+  serviceAccountName: workflow
+  entrypoint: ingest-traffic
+  arguments:
+    parameters:
+      - name: ingest_date
+        value: "2026-04-20"  # valor por defecto
+  templates:
+    - name: ingest-traffic
+      inputs:
+        parameters:
+          - name: ingest_date
+      container:
+        env:
+          - name: CENTER_ID
+            value: "EUR_MAD_001"
+          - name: SIMULATION_API_URL
+            value: "http://simulation-api:8000"
+          - name: MINIO_ENDPOINT
+            value: "http://minio:9000"
+          - name: INGEST_DATE
+            value: "{{inputs.parameters.ingest_date}}"
+          - name: MINIO_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-credentials
+                key: access_key
+          - name: MINIO_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: minio-credentials
+                key: secret_key
+        image: python-ingestor:local
+        imagePullPolicy: Never
+        command: [python]
+        args: [ingest.py]
