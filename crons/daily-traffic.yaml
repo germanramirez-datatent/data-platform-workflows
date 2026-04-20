@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: daily-traffic-ingest
+  namespace: argo
+spec:
+  schedules: 
+    - "0 2 * * *"        # cada día a las 2:00 AM UTC
+  timezone: "Europe/Madrid"     # zona horaria
+  concurrencyPolicy: Forbid     # no ejecutar si la anterior sigue corriendo
+  workflowSpec:
+      serviceAccountName: workflow
+      entrypoint: ingest-traffic
+      templates:
+        - name: ingest-traffic
+          container:
+            env:
+              - name: CENTER_ID
+                value: "EUR_MAD_001"
+              - name: SIMULATION_API_URL
+                value: "http://simulation-api:8000"
+              - name: MINIO_ENDPOINT
+                value: "http://minio:9000"
+              - name: MINIO_ACCESS_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: minio-credentials
+                    key: access_key
+              - name: MINIO_SECRET_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: minio-credentials
+                    key: secret_key
+            image: python-ingestor:local
+            imagePullPolicy: Never
+            command: [python]
+            args: [ingest.py]
