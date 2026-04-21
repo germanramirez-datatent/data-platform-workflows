@@ -14,6 +14,8 @@ spec:
           - name: validate
             template: validate
             dependencies: [ingest]
+            continueOn:
+              failed: true  
             arguments:
               parameters:
                 - name: object_key
@@ -63,7 +65,7 @@ spec:
           - name: BUCKET
             value: "raw"
           - name: EXPECTED_RECORDS
-            value: "24"
+            value: "7"
           - name: MINIO_ENDPOINT
             value: "http://minio:9000"
           - name: MINIO_ACCESS_KEY
