@@ -1,0 +1,309 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: ingest-all-sources
+  namespace: argo
+spec:
+  serviceAccountName: workflow
+  entrypoint: ingest-all-sources
+  arguments:
+    parameters:
+      - name: ingest_date
+        value: "2026-04-22"
+      - name: raw_bucket
+        value: "data-platform-dev-raw-811430801421"
+      - name: traffic_expected_records
+        value: "24"
+      - name: weather_expected_records
+        value: "24"
+      - name: holidays_expected_records
+        value: "0"
+      - name: flights_expected_records
+        value: "1"
+  templates:
+    - name: ingest-all-sources
+      dag:
+        tasks:
+          - name: ingest-traffic
+            template: ingest-traffic
+          - name: ingest-weather
+            template: ingest-weather
+          - name: ingest-holidays
+            template: ingest-holidays
+          - name: ingest-flights
+            template: ingest-flights
+          - name: validate-traffic
+            template: validate
+            depends: "ingest-traffic.Succeeded"
+            arguments:
+              parameters:
+                - name: object_key
+                  value: "{{tasks.ingest-traffic.outputs.parameters.object_key}}"
+                - name: expected_records
+                  value: "{{workflow.parameters.traffic_expected_records}}"
+                - name: validation_field_path
+                  value: "records"
+                - name: validation_mode
+                  value: "count"
+          - name: validate-weather
+            template: validate
+            depends: "ingest-weather.Succeeded"
+            arguments:
+              parameters:
+                - name: object_key
+                  value: "{{tasks.ingest-weather.outputs.parameters.object_key}}"
+                - name: expected_records
+                  value: "{{workflow.parameters.weather_expected_records}}"
+                - name: validation_field_path
+                  value: "hourly.time"
+                - name: validation_mode
+                  value: "count"
+          - name: validate-holidays
+            template: validate
+            depends: "ingest-holidays.Succeeded"
+            arguments:
+              parameters:
+                - name: object_key
+                  value: "{{tasks.ingest-holidays.outputs.parameters.object_key}}"
+                - name: expected_records
+                  value: "{{workflow.parameters.holidays_expected_records}}"
+                - name: validation_field_path
+                  value: "holidays"
+                - name: validation_mode
+                  value: "count"
+          - name: validate-flights
+            template: validate
+            depends: "ingest-flights.Succeeded"
+            arguments:
+              parameters:
+                - name: object_key
+                  value: "{{tasks.ingest-flights.outputs.parameters.object_key}}"
+                - name: expected_records
+                  value: "{{workflow.parameters.flights_expected_records}}"
+                - name: validation_field_path
+                  value: "states"
+                - name: validation_mode
+                  value: "gte"
+          - name: notify
+            template: notify
+            depends: >-
+              (validate-traffic.Succeeded || validate-traffic.Failed || validate-traffic.Omitted) &&
+              (validate-weather.Succeeded || validate-weather.Failed || validate-weather.Omitted) &&
+              (validate-holidays.Succeeded || validate-holidays.Failed || validate-holidays.Omitted) &&
+              (validate-flights.Succeeded || validate-flights.Failed || validate-flights.Omitted)
+            arguments:
+              parameters:
+                - name: traffic_status
+                  value: "{{tasks.validate-traffic.status}}"
+                - name: weather_status
+                  value: "{{tasks.validate-weather.status}}"
+                - name: holidays_status
+                  value: "{{tasks.validate-holidays.status}}"
+                - name: flights_status
+                  value: "{{tasks.validate-flights.status}}"
+
+    - name: ingest-traffic
+      outputs:
+        parameters:
+          - name: object_key
+            valueFrom:
+              path: /tmp/object_key.txt
+      container:
+        image: python-ingestor:local
+        imagePullPolicy: Never
+        command: [python]
+        args: [ingest.py]
+        env:
+          - name: INGEST_SOURCE
+            value: "traffic"
+          - name: INGEST_DATE
+            value: "{{workflow.parameters.ingest_date}}"
+          - name: RAW_BUCKET
+            value: "{{workflow.parameters.raw_bucket}}"
+          - name: CENTER_ID
+            value: "EUR_MAD_001"
+          - name: SIMULATION_API_URL
+            value: "http://simulation-api:8000"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_ACCESS_KEY_ID
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_SECRET_ACCESS_KEY
+
+    - name: ingest-weather
+      outputs:
+        parameters:
+          - name: object_key
+            valueFrom:
+              path: /tmp/object_key.txt
+      container:
+        image: python-ingestor:local
+        imagePullPolicy: Never
+        command: [python]
+        args: [ingest.py]
+        env:
+          - name: INGEST_SOURCE
+            value: "weather"
+          - name: INGEST_DATE
+            value: "{{workflow.parameters.ingest_date}}"
+          - name: RAW_BUCKET
+            value: "{{workflow.parameters.raw_bucket}}"
+          - name: WEATHER_LATITUDE
+            value: "40.4168"
+          - name: WEATHER_LONGITUDE
+            value: "-3.7038"
+          - name: WEATHER_TIMEZONE
+            value: "Europe/Madrid"
+          - name: OPEN_METEO_URL
+            value: "https://archive-api.open-meteo.com/v1/archive"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_ACCESS_KEY_ID
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_SECRET_ACCESS_KEY
+
+    - name: ingest-holidays
+      outputs:
+        parameters:
+          - name: object_key
+            valueFrom:
+              path: /tmp/object_key.txt
+      container:
+        image: python-ingestor:local
+        imagePullPolicy: Never
+        command: [python]
+        args: [ingest.py]
+        env:
+          - name: INGEST_SOURCE
+            value: "holidays"
+          - name: INGEST_DATE
+            value: "{{workflow.parameters.ingest_date}}"
+          - name: RAW_BUCKET
+            value: "{{workflow.parameters.raw_bucket}}"
+          - name: HOLIDAYS_COUNTRY_CODE
+            value: "ES"
+          - name: NAGER_DATE_URL
+            value: "https://date.nager.at/api/v3/PublicHolidays"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_ACCESS_KEY_ID
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_SECRET_ACCESS_KEY
+
+    - name: ingest-flights
+      outputs:
+        parameters:
+          - name: object_key
+            valueFrom:
+              path: /tmp/object_key.txt
+      container:
+        image: python-ingestor:local
+        imagePullPolicy: Never
+        command: [python]
+        args: [ingest.py]
+        env:
+          - name: INGEST_SOURCE
+            value: "flights"
+          - name: RAW_BUCKET
+            value: "{{workflow.parameters.raw_bucket}}"
+          - name: OPENSKY_LAMIN
+            value: "39.8"
+          - name: OPENSKY_LAMAX
+            value: "41.0"
+          - name: OPENSKY_LOMIN
+            value: "-4.0"
+          - name: OPENSKY_LOMAX
+            value: "-3.0"
+          - name: OPENSKY_AREA_NAME
+            value: "madrid"
+          - name: OPENSKY_TOKEN_URL
+            value: "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
+          - name: OPENSKY_URL
+            value: "https://opensky-network.org/api/states/all"
+          - name: OPENSKY_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: opensky-credentials
+                key: OPENSKY_CLIENT_ID
+          - name: OPENSKY_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: opensky-credentials
+                key: OPENSKY_CLIENT_SECRET
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_ACCESS_KEY_ID
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_SECRET_ACCESS_KEY
+
+    - name: validate
+      inputs:
+        parameters:
+          - name: object_key
+          - name: expected_records
+          - name: validation_field_path
+          - name: validation_mode
+      container:
+        image: data-quality:local
+        imagePullPolicy: Never
+        command: [python]
+        args: [validate.py]
+        env:
+          - name: OBJECT_KEY
+            value: "{{inputs.parameters.object_key}}"
+          - name: EXPECTED_RECORDS
+            value: "{{inputs.parameters.expected_records}}"
+          - name: VALIDATION_FIELD_PATH
+            value: "{{inputs.parameters.validation_field_path}}"
+          - name: VALIDATION_MODE
+            value: "{{inputs.parameters.validation_mode}}"
+          - name: BUCKET
+            value: "{{workflow.parameters.raw_bucket}}"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_ACCESS_KEY_ID
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_SECRET_ACCESS_KEY
+
+    - name: notify
+      inputs:
+        parameters:
+          - name: traffic_status
+          - name: weather_status
+          - name: holidays_status
+          - name: flights_status
+      container:
+        image: alpine:3.18
+        command: [echo]
+        args:
+          - >-
+            ingest-all-sources summary:
+            traffic={{inputs.parameters.traffic_status}},
+            weather={{inputs.parameters.weather_status}},
+            holidays={{inputs.parameters.holidays_status}},
+            flights={{inputs.parameters.flights_status}}
