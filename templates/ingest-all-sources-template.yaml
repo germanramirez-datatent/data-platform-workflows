@@ -10,6 +10,10 @@ spec:
     parameters:
       - name: ingest_date
         value: "2026-04-22"
+      - name: project_name
+        value: "data-platform"
+      - name: environment
+        value: "dev"
       - name: raw_bucket
         value: "data-platform-dev-raw-811430801421"
       - name: traffic_expected_records
@@ -84,13 +88,41 @@ spec:
                   value: "states"
                 - name: validation_mode
                   value: "gte"
+          - name: transform-traffic
+            template: glue-trigger
+            depends: "validate-traffic.Succeeded"
+            arguments:
+              parameters:
+                - name: source_name
+                  value: "traffic"
+          - name: transform-weather
+            template: glue-trigger
+            depends: "validate-weather.Succeeded"
+            arguments:
+              parameters:
+                - name: source_name
+                  value: "weather"
+          - name: transform-holidays
+            template: glue-trigger
+            depends: "validate-holidays.Succeeded"
+            arguments:
+              parameters:
+                - name: source_name
+                  value: "holidays"
+          - name: transform-flights
+            template: glue-trigger
+            depends: "validate-flights.Succeeded"
+            arguments:
+              parameters:
+                - name: source_name
+                  value: "flights"
           - name: notify
             template: notify
             depends: >-
-              (validate-traffic.Succeeded || validate-traffic.Failed || validate-traffic.Omitted) &&
-              (validate-weather.Succeeded || validate-weather.Failed || validate-weather.Omitted) &&
-              (validate-holidays.Succeeded || validate-holidays.Failed || validate-holidays.Omitted) &&
-              (validate-flights.Succeeded || validate-flights.Failed || validate-flights.Omitted)
+              ((validate-traffic.Failed || validate-traffic.Errored || validate-traffic.Omitted) || (transform-traffic.Succeeded || transform-traffic.Failed || transform-traffic.Errored || transform-traffic.Omitted)) &&
+              ((validate-weather.Failed || validate-weather.Errored || validate-weather.Omitted) || (transform-weather.Succeeded || transform-weather.Failed || transform-weather.Errored || transform-weather.Omitted)) &&
+              ((validate-holidays.Failed || validate-holidays.Errored || validate-holidays.Omitted) || (transform-holidays.Succeeded || transform-holidays.Failed || transform-holidays.Errored || transform-holidays.Omitted)) &&
+              ((validate-flights.Failed || validate-flights.Errored || validate-flights.Omitted) || (transform-flights.Succeeded || transform-flights.Failed || transform-flights.Errored || transform-flights.Omitted))
             arguments:
               parameters:
                 - name: traffic_status
@@ -101,6 +133,14 @@ spec:
                   value: "{{tasks.validate-holidays.status}}"
                 - name: flights_status
                   value: "{{tasks.validate-flights.status}}"
+                - name: traffic_transform_status
+                  value: "{{tasks.transform-traffic.status}}"
+                - name: weather_transform_status
+                  value: "{{tasks.transform-weather.status}}"
+                - name: holidays_transform_status
+                  value: "{{tasks.transform-holidays.status}}"
+                - name: flights_transform_status
+                  value: "{{tasks.transform-flights.status}}"
 
     - name: ingest-traffic
       outputs:
@@ -219,6 +259,8 @@ spec:
         env:
           - name: INGEST_SOURCE
             value: "flights"
+          - name: INGEST_DATE
+            value: "{{workflow.parameters.ingest_date}}"
           - name: RAW_BUCKET
             value: "{{workflow.parameters.raw_bucket}}"
           - name: OPENSKY_LAMIN
@@ -290,6 +332,37 @@ spec:
                 name: aws-credentials
                 key: AWS_SECRET_ACCESS_KEY
 
+    - name: glue-trigger
+      inputs:
+        parameters:
+          - name: source_name
+      container:
+        image: glue-trigger:local
+        imagePullPolicy: Never
+        command: [python]
+        args: [trigger.py]
+        env:
+          - name: SOURCE_NAME
+            value: "{{inputs.parameters.source_name}}"
+          - name: INGEST_DATE
+            value: "{{workflow.parameters.ingest_date}}"
+          - name: PROJECT_NAME
+            value: "{{workflow.parameters.project_name}}"
+          - name: ENVIRONMENT
+            value: "{{workflow.parameters.environment}}"
+          - name: AWS_REGION
+            value: "eu-west-1"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_ACCESS_KEY_ID
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_SECRET_ACCESS_KEY
+
     - name: notify
       inputs:
         parameters:
@@ -297,13 +370,21 @@ spec:
           - name: weather_status
           - name: holidays_status
           - name: flights_status
+          - name: traffic_transform_status
+          - name: weather_transform_status
+          - name: holidays_transform_status
+          - name: flights_transform_status
       container:
         image: alpine:3.18
         command: [echo]
         args:
           - >-
             ingest-all-sources summary:
-            traffic={{inputs.parameters.traffic_status}},
-            weather={{inputs.parameters.weather_status}},
-            holidays={{inputs.parameters.holidays_status}},
-            flights={{inputs.parameters.flights_status}}
+            traffic_validate={{inputs.parameters.traffic_status}},
+            traffic_transform={{inputs.parameters.traffic_transform_status}},
+            weather_validate={{inputs.parameters.weather_status}},
+            weather_transform={{inputs.parameters.weather_transform_status}},
+            holidays_validate={{inputs.parameters.holidays_status}},
+            holidays_transform={{inputs.parameters.holidays_transform_status}},
+            flights_validate={{inputs.parameters.flights_status}},
+            flights_transform={{inputs.parameters.flights_transform_status}}
