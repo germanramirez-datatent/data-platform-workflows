@@ -116,13 +116,21 @@ spec:
               parameters:
                 - name: source_name
                   value: "flights"
+          - name: dbt-run
+            template: dbt-run
+            depends: >-
+              transform-traffic.Succeeded &&
+              transform-weather.Succeeded &&
+              transform-holidays.Succeeded &&
+              transform-flights.Succeeded
           - name: notify
             template: notify
             depends: >-
               ((validate-traffic.Failed || validate-traffic.Errored || validate-traffic.Omitted) || (transform-traffic.Succeeded || transform-traffic.Failed || transform-traffic.Errored || transform-traffic.Omitted)) &&
               ((validate-weather.Failed || validate-weather.Errored || validate-weather.Omitted) || (transform-weather.Succeeded || transform-weather.Failed || transform-weather.Errored || transform-weather.Omitted)) &&
               ((validate-holidays.Failed || validate-holidays.Errored || validate-holidays.Omitted) || (transform-holidays.Succeeded || transform-holidays.Failed || transform-holidays.Errored || transform-holidays.Omitted)) &&
-              ((validate-flights.Failed || validate-flights.Errored || validate-flights.Omitted) || (transform-flights.Succeeded || transform-flights.Failed || transform-flights.Errored || transform-flights.Omitted))
+              ((validate-flights.Failed || validate-flights.Errored || validate-flights.Omitted) || (transform-flights.Succeeded || transform-flights.Failed || transform-flights.Errored || transform-flights.Omitted)) &&
+              (dbt-run.Succeeded || dbt-run.Failed || dbt-run.Errored || dbt-run.Omitted)
             arguments:
               parameters:
                 - name: traffic_status
@@ -141,6 +149,8 @@ spec:
                   value: "{{tasks.transform-holidays.status}}"
                 - name: flights_transform_status
                   value: "{{tasks.transform-flights.status}}"
+                - name: dbt_status
+                  value: "{{tasks.dbt-run.status}}"
 
     - name: ingest-traffic
       outputs:
@@ -352,6 +362,36 @@ spec:
             value: "{{workflow.parameters.environment}}"
           - name: AWS_REGION
             value: "eu-west-1"
+          - name: AWS_ACCESS_KEY_ID
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_ACCESS_KEY_ID
+          - name: AWS_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: aws-credentials
+                key: AWS_SECRET_ACCESS_KEY
+
+    - name: dbt-run
+      container:
+        image: dbt-runner:local
+        imagePullPolicy: Never
+        command: [sh, -c]
+        args: ["dbt run --profiles-dir /root/.dbt && dbt test --profiles-dir /root/.dbt"]
+        env:
+          - name: DBT_REGION
+            value: "eu-west-1"
+          - name: DBT_S3_STAGING_DIR
+            value: "s3://data-platform-dev-athena-results-811430801421/query-results/"
+          - name: DBT_S3_DATA_DIR
+            value: "s3://data-platform-dev-curated-811430801421/"
+          - name: DBT_SCHEMA
+            value: "data_platform_dev_curated"
+          - name: DBT_WORK_GROUP
+            value: "data-platform-dev-analytics"
+          - name: DBT_TARGET
+            value: "dev"
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:
