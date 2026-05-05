@@ -1,0 +1,6 @@
+- op: replace
+  path: /spec/template/spec/containers/0/image
+  value: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/simulation-api:latest
+- op: replace
+  path: /spec/template/spec/containers/0/imagePullPolicy
+  value: Always

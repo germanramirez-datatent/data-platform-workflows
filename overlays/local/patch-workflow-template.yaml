@@ -1,0 +1,154 @@
+- op: replace
+  path: /spec/templates/1/container/image
+  value: python-ingestor:local
+- op: replace
+  path: /spec/templates/1/container/imagePullPolicy
+  value: Never
+- op: replace
+  path: /spec/templates/2/container/image
+  value: python-ingestor:local
+- op: replace
+  path: /spec/templates/2/container/imagePullPolicy
+  value: Never
+- op: replace
+  path: /spec/templates/3/container/image
+  value: python-ingestor:local
+- op: replace
+  path: /spec/templates/3/container/imagePullPolicy
+  value: Never
+- op: replace
+  path: /spec/templates/4/container/image
+  value: python-ingestor:local
+- op: replace
+  path: /spec/templates/4/container/imagePullPolicy
+  value: Never
+- op: replace
+  path: /spec/templates/5/container/image
+  value: data-quality:local
+- op: replace
+  path: /spec/templates/5/container/imagePullPolicy
+  value: Never
+- op: replace
+  path: /spec/templates/6/container/image
+  value: glue-trigger:local
+- op: replace
+  path: /spec/templates/6/container/imagePullPolicy
+  value: Never
+- op: replace
+  path: /spec/templates/7/container/image
+  value: dbt-runner:local
+- op: replace
+  path: /spec/templates/7/container/imagePullPolicy
+  value: Never
+- op: add
+  path: /spec/templates/1/container/env/-
+  value:
+    name: AWS_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_ACCESS_KEY_ID
+- op: add
+  path: /spec/templates/1/container/env/-
+  value:
+    name: AWS_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_SECRET_ACCESS_KEY
+- op: add
+  path: /spec/templates/2/container/env/-
+  value:
+    name: AWS_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_ACCESS_KEY_ID
+- op: add
+  path: /spec/templates/2/container/env/-
+  value:
+    name: AWS_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_SECRET_ACCESS_KEY
+- op: add
+  path: /spec/templates/3/container/env/-
+  value:
+    name: AWS_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_ACCESS_KEY_ID
+- op: add
+  path: /spec/templates/3/container/env/-
+  value:
+    name: AWS_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_SECRET_ACCESS_KEY
+- op: add
+  path: /spec/templates/4/container/env/-
+  value:
+    name: AWS_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_ACCESS_KEY_ID
+- op: add
+  path: /spec/templates/4/container/env/-
+  value:
+    name: AWS_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_SECRET_ACCESS_KEY
+- op: add
+  path: /spec/templates/5/container/env/-
+  value:
+    name: AWS_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_ACCESS_KEY_ID
+- op: add
+  path: /spec/templates/5/container/env/-
+  value:
+    name: AWS_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_SECRET_ACCESS_KEY
+- op: add
+  path: /spec/templates/6/container/env/-
+  value:
+    name: AWS_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_ACCESS_KEY_ID
+- op: add
+  path: /spec/templates/6/container/env/-
+  value:
+    name: AWS_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_SECRET_ACCESS_KEY
+- op: add
+  path: /spec/templates/7/container/env/-
+  value:
+    name: AWS_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_ACCESS_KEY_ID
+- op: add
+  path: /spec/templates/7/container/env/-
+  value:
+    name: AWS_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: aws-credentials
+        key: AWS_SECRET_ACCESS_KEY

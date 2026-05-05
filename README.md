@@ -4,7 +4,7 @@ Argo Workflows and Kubernetes manifests for orchestrating the shopping center da
 
 ## What Runs Here
 
-The main workflow template is `templates/ingest-all-sources-template.yaml`. It orchestrates:
+The main workflow template is `base/ingest-all-sources-template.yaml`. It orchestrates:
 
 1. Ingest traffic, weather, holidays, and flights in parallel.
 2. Validate each raw payload.
@@ -18,19 +18,25 @@ The scheduled entrypoint is `crons/daily-all-sources.yaml`, which references the
 
 ```text
 .
+|-- base
 |-- crons
 |-- minio
+|-- overlays
 |-- pipelines
-|-- rbac
-|-- simulation-api
-`-- templates
+|-- platform
+`-- simulation-api
 ```
 
 ## Key Manifests
 
 | Path | Purpose |
 | --- | --- |
-| `templates/ingest-all-sources-template.yaml` | Reusable Argo WorkflowTemplate for the full platform pipeline. |
+| `base/ingest-all-sources-template.yaml` | Shared WorkflowTemplate used by the Kustomize overlays. |
+| `base/kustomization.yaml` | Shared Argo base: workflow template, RBAC, and cron workflow. |
+| `overlays/local` | Local cluster overlay with `:local` images, MinIO, and local secret refs. |
+| `overlays/dev` | AWS dev overlay with ECR images, IRSA, ECR-backed simulation API, and OpenSky `ExternalSecret`. |
+| `overlays/prod` | AWS prod overlay with prod buckets, IRSA, ECR-backed simulation API, and OpenSky `ExternalSecret`. |
+| `platform/externalsecrets` | Cluster-scoped `ClusterSecretStore` for AWS Parameter Store. |
 | `crons/daily-all-sources.yaml` | Daily CronWorkflow that invokes the all-sources template. |
 | `pipelines/ingest-all-sources.yaml` | Standalone all-sources workflow for direct submission. |
 | `pipelines/ingest-traffic*.yaml` | Earlier traffic-only workflow examples for local and S3-backed runs. |
@@ -44,20 +50,22 @@ The scheduled entrypoint is `crons/daily-all-sources.yaml`, which references the
 - Kubernetes cluster with Argo Workflows installed.
 - `kubectl` configured for the target cluster.
 - `argo` CLI for direct workflow submission.
-- Container images built and available to the cluster:
+- For `local`: local images built and available to the cluster:
   - `simulation-api:local`
   - `python-ingestor:local`
   - `data-quality:local`
   - `glue-trigger:local`
   - `dbt-runner:local`
-- AWS credentials secret for S3, Glue, Athena, and dbt steps.
-- OpenSky credentials secret for the flights ingestion step.
+- For `dev` and `prod`: ECR images available in `eu-west-1`.
+- For `local`: `aws-credentials` Kubernetes Secret for workflow pods.
+- For `dev` and `prod`: IRSA configured for the `workflow` ServiceAccount.
+- For `dev` and `prod`: External Secrets Operator installed plus access to AWS Parameter Store.
 
 For local development, `data-platform-infra/scripts/init-local.sh` installs Argo, MinIO, the simulation API, RBAC, and the daily traffic CronWorkflow into a k3d cluster.
 
-## Required Secrets
+## Secrets and Credentials
 
-The AWS-backed workflows expect:
+Local workflow pods expect:
 
 ```bash
 kubectl -n argo create secret generic aws-credentials \
@@ -65,12 +73,13 @@ kubectl -n argo create secret generic aws-credentials \
   --from-literal=AWS_SECRET_ACCESS_KEY=<secret-key>
 ```
 
-Flights ingestion expects:
+In `dev` and `prod`, the OpenSky Kubernetes Secret is created by `ExternalSecret` from AWS SSM Parameter Store. The expected parameter paths are:
 
-```bash
-kubectl -n argo create secret generic opensky-credentials \
-  --from-literal=OPENSKY_CLIENT_ID=<client-id> \
-  --from-literal=OPENSKY_CLIENT_SECRET=<client-secret>
+```text
+/data-platform/dev/opensky/client-id
+/data-platform/dev/opensky/client-secret
+/data-platform/prod/opensky/client-id
+/data-platform/prod/opensky/client-secret
 ```
 
 For local MinIO examples, the bootstrap script creates:
@@ -81,15 +90,20 @@ minio-credentials
 
 with access key `minioadmin` and secret key `minioadmin`.
 
-## Apply Core Resources
+## Apply Resources
 
 ```bash
-kubectl apply -f rbac/workflow-rbac.yaml
-kubectl apply -f minio/minio.yaml
-kubectl apply -f simulation-api/simulation-api.yaml
-kubectl apply -f templates/ingest-all-sources-template.yaml
-kubectl apply -f crons/daily-all-sources.yaml
+kubectl apply -k platform/externalsecrets
+kubectl apply -k overlays/local
+kubectl apply -k overlays/dev
+kubectl apply -k overlays/prod
 ```
+
+Apply by environment:
+
+- `local`: `kubectl apply -k overlays/local`
+- `dev`: `kubectl apply -k platform/externalsecrets && kubectl apply -k overlays/dev`
+- `prod`: `kubectl apply -k platform/externalsecrets && kubectl apply -k overlays/prod`
 
 ## Submit Workflows
 
@@ -122,7 +136,7 @@ argo submit pipelines/ingest-traffic-dag.yaml -n argo --watch
 
 ## Default Parameters
 
-The all-sources template includes default values for development:
+The base template and dev overlay use these defaults:
 
 | Parameter | Default |
 | --- | --- |
@@ -137,7 +151,9 @@ The all-sources template includes default values for development:
 
 ## Runtime Flow
 
-Ingestion steps use `python-ingestor:local` and write source JSON to the raw bucket. Each step exposes the raw object key through `/tmp/object_key.txt`, which downstream validation uses.
+In `base`, `dev`, and `prod`, the workflow uses ECR images and `imagePullPolicy: Always`. The `local` overlay patches those runtime images back to `:local` with `imagePullPolicy: Never`.
+
+Ingestion steps write source JSON to the raw bucket and expose the raw object key through `/tmp/object_key.txt`, which downstream validation uses.
 
 Validation steps use `data-quality:local`:
 
@@ -146,13 +162,13 @@ Validation steps use `data-quality:local`:
 - Holidays validates `holidays` using list count.
 - Flights validates `states` using greater-than-or-equal mode.
 
-Transform steps use `glue-trigger:local` to start the shared Glue job:
+Transform steps use the `glue-trigger` container to start the shared Glue job:
 
 ```text
 data-platform-dev-transform-to-curated
 ```
 
-The dbt step uses `dbt-runner:local` and runs:
+The dbt step runs:
 
 ```bash
 dbt run --profiles-dir /root/.dbt && dbt test --profiles-dir /root/.dbt

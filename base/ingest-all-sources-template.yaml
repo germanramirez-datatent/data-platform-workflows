@@ -1,0 +1,360 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: ingest-all-sources
+  namespace: argo
+spec:
+  serviceAccountName: workflow
+  entrypoint: ingest-all-sources
+  arguments:
+    parameters:
+      - name: ingest_date
+        value: "2026-04-22"
+      - name: project_name
+        value: "data-platform"
+      - name: environment
+        value: "dev"
+      - name: raw_bucket
+        value: "data-platform-dev-raw-811430801421"
+      - name: traffic_expected_records
+        value: "24"
+      - name: weather_expected_records
+        value: "24"
+      - name: holidays_expected_records
+        value: "0"
+      - name: flights_expected_records
+        value: "1"
+  templates:
+    - name: ingest-all-sources
+      dag:
+        tasks:
+          - name: ingest-traffic
+            template: ingest-traffic
+          - name: ingest-weather
+            template: ingest-weather
+          - name: ingest-holidays
+            template: ingest-holidays
+          - name: ingest-flights
+            template: ingest-flights
+          - name: validate-traffic
+            template: validate
+            depends: "ingest-traffic.Succeeded"
+            arguments:
+              parameters:
+                - name: object_key
+                  value: "{{tasks.ingest-traffic.outputs.parameters.object_key}}"
+                - name: expected_records
+                  value: "{{workflow.parameters.traffic_expected_records}}"
+                - name: validation_field_path
+                  value: "records"
+                - name: validation_mode
+                  value: "count"
+          - name: validate-weather
+            template: validate
+            depends: "ingest-weather.Succeeded"
+            arguments:
+              parameters:
+                - name: object_key
+                  value: "{{tasks.ingest-weather.outputs.parameters.object_key}}"
+                - name: expected_records
+                  value: "{{workflow.parameters.weather_expected_records}}"
+                - name: validation_field_path
+                  value: "hourly.time"
+                - name: validation_mode
+                  value: "count"
+          - name: validate-holidays
+            template: validate
+            depends: "ingest-holidays.Succeeded"
+            arguments:
+              parameters:
+                - name: object_key
+                  value: "{{tasks.ingest-holidays.outputs.parameters.object_key}}"
+                - name: expected_records
+                  value: "{{workflow.parameters.holidays_expected_records}}"
+                - name: validation_field_path
+                  value: "holidays"
+                - name: validation_mode
+                  value: "count"
+          - name: validate-flights
+            template: validate
+            depends: "ingest-flights.Succeeded"
+            arguments:
+              parameters:
+                - name: object_key
+                  value: "{{tasks.ingest-flights.outputs.parameters.object_key}}"
+                - name: expected_records
+                  value: "{{workflow.parameters.flights_expected_records}}"
+                - name: validation_field_path
+                  value: "states"
+                - name: validation_mode
+                  value: "gte"
+          - name: transform-traffic
+            template: glue-trigger
+            depends: "validate-traffic.Succeeded"
+            arguments:
+              parameters:
+                - name: source_name
+                  value: "traffic"
+          - name: transform-weather
+            template: glue-trigger
+            depends: "validate-weather.Succeeded"
+            arguments:
+              parameters:
+                - name: source_name
+                  value: "weather"
+          - name: transform-holidays
+            template: glue-trigger
+            depends: "validate-holidays.Succeeded"
+            arguments:
+              parameters:
+                - name: source_name
+                  value: "holidays"
+          - name: transform-flights
+            template: glue-trigger
+            depends: "validate-flights.Succeeded"
+            arguments:
+              parameters:
+                - name: source_name
+                  value: "flights"
+          - name: dbt-run
+            template: dbt-run
+            depends: >-
+              transform-traffic.Succeeded &&
+              transform-weather.Succeeded &&
+              transform-holidays.Succeeded &&
+              transform-flights.Succeeded
+          - name: notify
+            template: notify
+            depends: >-
+              ((validate-traffic.Failed || validate-traffic.Errored || validate-traffic.Omitted) || (transform-traffic.Succeeded || transform-traffic.Failed || transform-traffic.Errored || transform-traffic.Omitted)) &&
+              ((validate-weather.Failed || validate-weather.Errored || validate-weather.Omitted) || (transform-weather.Succeeded || transform-weather.Failed || transform-weather.Errored || transform-weather.Omitted)) &&
+              ((validate-holidays.Failed || validate-holidays.Errored || validate-holidays.Omitted) || (transform-holidays.Succeeded || transform-holidays.Failed || transform-holidays.Errored || transform-holidays.Omitted)) &&
+              ((validate-flights.Failed || validate-flights.Errored || validate-flights.Omitted) || (transform-flights.Succeeded || transform-flights.Failed || transform-flights.Errored || transform-flights.Omitted)) &&
+              (dbt-run.Succeeded || dbt-run.Failed || dbt-run.Errored || dbt-run.Omitted)
+            arguments:
+              parameters:
+                - name: traffic_status
+                  value: "{{tasks.validate-traffic.status}}"
+                - name: weather_status
+                  value: "{{tasks.validate-weather.status}}"
+                - name: holidays_status
+                  value: "{{tasks.validate-holidays.status}}"
+                - name: flights_status
+                  value: "{{tasks.validate-flights.status}}"
+                - name: traffic_transform_status
+                  value: "{{tasks.transform-traffic.status}}"
+                - name: weather_transform_status
+                  value: "{{tasks.transform-weather.status}}"
+                - name: holidays_transform_status
+                  value: "{{tasks.transform-holidays.status}}"
+                - name: flights_transform_status
+                  value: "{{tasks.transform-flights.status}}"
+                - name: dbt_status
+                  value: "{{tasks.dbt-run.status}}"
+
+    - name: ingest-traffic
+      outputs:
+        parameters:
+          - name: object_key
+            valueFrom:
+              path: /tmp/object_key.txt
+      container:
+        image: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/python-ingestor:latest
+        imagePullPolicy: Always
+        command: [python]
+        args: [ingest.py]
+        env:
+          - name: INGEST_SOURCE
+            value: "traffic"
+          - name: INGEST_DATE
+            value: "{{workflow.parameters.ingest_date}}"
+          - name: RAW_BUCKET
+            value: "{{workflow.parameters.raw_bucket}}"
+          - name: CENTER_ID
+            value: "EUR_MAD_001"
+          - name: SIMULATION_API_URL
+            value: "http://simulation-api:8000"
+
+    - name: ingest-weather
+      outputs:
+        parameters:
+          - name: object_key
+            valueFrom:
+              path: /tmp/object_key.txt
+      container:
+        image: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/python-ingestor:latest
+        imagePullPolicy: Always
+        command: [python]
+        args: [ingest.py]
+        env:
+          - name: INGEST_SOURCE
+            value: "weather"
+          - name: INGEST_DATE
+            value: "{{workflow.parameters.ingest_date}}"
+          - name: RAW_BUCKET
+            value: "{{workflow.parameters.raw_bucket}}"
+          - name: WEATHER_LATITUDE
+            value: "40.4168"
+          - name: WEATHER_LONGITUDE
+            value: "-3.7038"
+          - name: WEATHER_TIMEZONE
+            value: "Europe/Madrid"
+          - name: OPEN_METEO_URL
+            value: "https://archive-api.open-meteo.com/v1/archive"
+
+    - name: ingest-holidays
+      outputs:
+        parameters:
+          - name: object_key
+            valueFrom:
+              path: /tmp/object_key.txt
+      container:
+        image: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/python-ingestor:latest
+        imagePullPolicy: Always
+        command: [python]
+        args: [ingest.py]
+        env:
+          - name: INGEST_SOURCE
+            value: "holidays"
+          - name: INGEST_DATE
+            value: "{{workflow.parameters.ingest_date}}"
+          - name: RAW_BUCKET
+            value: "{{workflow.parameters.raw_bucket}}"
+          - name: HOLIDAYS_COUNTRY_CODE
+            value: "ES"
+          - name: NAGER_DATE_URL
+            value: "https://date.nager.at/api/v3/PublicHolidays"
+
+    - name: ingest-flights
+      outputs:
+        parameters:
+          - name: object_key
+            valueFrom:
+              path: /tmp/object_key.txt
+      container:
+        image: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/python-ingestor:latest
+        imagePullPolicy: Always
+        command: [python]
+        args: [ingest.py]
+        env:
+          - name: INGEST_SOURCE
+            value: "flights"
+          - name: INGEST_DATE
+            value: "{{workflow.parameters.ingest_date}}"
+          - name: RAW_BUCKET
+            value: "{{workflow.parameters.raw_bucket}}"
+          - name: OPENSKY_LAMIN
+            value: "39.8"
+          - name: OPENSKY_LAMAX
+            value: "41.0"
+          - name: OPENSKY_LOMIN
+            value: "-4.0"
+          - name: OPENSKY_LOMAX
+            value: "-3.0"
+          - name: OPENSKY_AREA_NAME
+            value: "madrid"
+          - name: OPENSKY_TOKEN_URL
+            value: "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
+          - name: OPENSKY_URL
+            value: "https://opensky-network.org/api/states/all"
+          - name: OPENSKY_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: opensky-credentials
+                key: OPENSKY_CLIENT_ID
+          - name: OPENSKY_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: opensky-credentials
+                key: OPENSKY_CLIENT_SECRET
+
+    - name: validate
+      inputs:
+        parameters:
+          - name: object_key
+          - name: expected_records
+          - name: validation_field_path
+          - name: validation_mode
+      container:
+        image: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/data-quality:latest
+        imagePullPolicy: Always
+        command: [python]
+        args: [validate.py]
+        env:
+          - name: OBJECT_KEY
+            value: "{{inputs.parameters.object_key}}"
+          - name: EXPECTED_RECORDS
+            value: "{{inputs.parameters.expected_records}}"
+          - name: VALIDATION_FIELD_PATH
+            value: "{{inputs.parameters.validation_field_path}}"
+          - name: VALIDATION_MODE
+            value: "{{inputs.parameters.validation_mode}}"
+          - name: BUCKET
+            value: "{{workflow.parameters.raw_bucket}}"
+
+    - name: glue-trigger
+      inputs:
+        parameters:
+          - name: source_name
+      container:
+        image: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/glue-trigger:latest
+        imagePullPolicy: Always
+        command: [python]
+        args: [trigger.py]
+        env:
+          - name: SOURCE_NAME
+            value: "{{inputs.parameters.source_name}}"
+          - name: INGEST_DATE
+            value: "{{workflow.parameters.ingest_date}}"
+          - name: PROJECT_NAME
+            value: "{{workflow.parameters.project_name}}"
+          - name: ENVIRONMENT
+            value: "{{workflow.parameters.environment}}"
+          - name: AWS_REGION
+            value: "eu-west-1"
+
+    - name: dbt-run
+      container:
+        image: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/dbt-runner:latest
+        imagePullPolicy: Always
+        command: [sh, -c]
+        args: ["dbt run --profiles-dir /root/.dbt && dbt test --profiles-dir /root/.dbt"]
+        env:
+          - name: DBT_REGION
+            value: "eu-west-1"
+          - name: DBT_S3_STAGING_DIR
+            value: "s3://data-platform-dev-athena-results-811430801421/query-results/"
+          - name: DBT_S3_DATA_DIR
+            value: "s3://data-platform-dev-curated-811430801421/"
+          - name: DBT_SCHEMA
+            value: "data_platform_dev_curated"
+          - name: DBT_WORK_GROUP
+            value: "data-platform-dev-analytics"
+          - name: DBT_TARGET
+            value: "dev"
+
+    - name: notify
+      inputs:
+        parameters:
+          - name: traffic_status
+          - name: weather_status
+          - name: holidays_status
+          - name: flights_status
+          - name: traffic_transform_status
+          - name: weather_transform_status
+          - name: holidays_transform_status
+          - name: flights_transform_status
+      container:
+        image: alpine:3.18
+        command: [echo]
+        args:
+          - >-
+            ingest-all-sources summary:
+            traffic_validate={{inputs.parameters.traffic_status}},
+            traffic_transform={{inputs.parameters.traffic_transform_status}},
+            weather_validate={{inputs.parameters.weather_status}},
+            weather_transform={{inputs.parameters.weather_transform_status}},
+            holidays_validate={{inputs.parameters.holidays_status}},
+            holidays_transform={{inputs.parameters.holidays_transform_status}},
+            flights_validate={{inputs.parameters.flights_status}},
+            flights_transform={{inputs.parameters.flights_transform_status}}

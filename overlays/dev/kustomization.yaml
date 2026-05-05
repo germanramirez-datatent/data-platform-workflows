@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - ../../simulation-api
+  - externalsecret-opensky.yaml
+patches:
+  - path: patch-workflow-serviceaccount.yaml
+    target:
+      version: v1
+      kind: ServiceAccount
+      name: workflow
+      namespace: argo
+  - path: patch-workflow-template.yaml
+    target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: WorkflowTemplate
+      name: ingest-all-sources
+  - path: patch-simulation-api.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: simulation-api
+      namespace: argo
