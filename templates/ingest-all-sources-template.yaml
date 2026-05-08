@@ -122,7 +122,7 @@ spec:
               transform-traffic.Succeeded &&
               transform-weather.Succeeded &&
               transform-holidays.Succeeded &&
-              transform-flights.Succeeded
+              (transform-flights.Succeeded || transform-flights.Omitted || transform-flights.Failed || ingest-flights.Failed || ingest-flights.Errored)
           - name: notify
             template: notify
             depends: >-

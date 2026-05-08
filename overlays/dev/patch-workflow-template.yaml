@@ -19,3 +19,24 @@
 - op: replace
   path: /spec/templates/7/container/env/5/value
   value: dev
+- op: replace
+  path: /spec/templates/1/container/image
+  value: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/python-ingestor:dev-latest
+- op: replace
+  path: /spec/templates/2/container/image
+  value: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/python-ingestor:dev-latest
+- op: replace
+  path: /spec/templates/3/container/image
+  value: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/python-ingestor:dev-latest
+- op: replace
+  path: /spec/templates/4/container/image
+  value: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/python-ingestor:dev-latest
+- op: replace
+  path: /spec/templates/5/container/image
+  value: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/data-quality:dev-latest
+- op: replace
+  path: /spec/templates/6/container/image
+  value: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/glue-trigger:dev-latest
+- op: replace
+  path: /spec/templates/7/container/image
+  value: 811430801421.dkr.ecr.eu-west-1.amazonaws.com/data-platform/dbt-runner:dev-latest
